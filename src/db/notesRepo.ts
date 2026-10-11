@@ -18,9 +18,9 @@ function decode(row: NoteRow): Note {
 
 export async function createLocalNote(note: Pick<Note, 'id' | 'localAudioUri' | 'durationMs' | 'createdAt'>) {
   const db = await getDatabase();
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    await tx.runAsync('INSERT INTO notes (id, local_audio_uri, duration_ms, created_at, status) VALUES (?, ?, ?, ?, ?)', note.id, note.localAudioUri, note.durationMs, note.createdAt, 'queued');
-    await tx.runAsync('INSERT INTO upload_queue (note_id, attempts, next_retry_at) VALUES (?, ?, ?)', note.id, 0, Date.now());
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('INSERT INTO notes (id, local_audio_uri, duration_ms, created_at, status) VALUES (?, ?, ?, ?, ?)', note.id, note.localAudioUri, note.durationMs, note.createdAt, 'queued');
+    await db.runAsync('INSERT INTO upload_queue (note_id, attempts, next_retry_at) VALUES (?, ?, ?)', note.id, 0, Date.now());
   });
 }
 

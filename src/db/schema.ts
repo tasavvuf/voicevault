@@ -2,10 +2,11 @@ import * as SQLite from 'expo-sqlite';
 
 let database: SQLite.SQLiteDatabase | null = null;
 
-export async function getDatabase() {
+export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   if (database) return database;
-  database = await SQLite.openDatabaseAsync('voicevault.db');
-  await database.execAsync(`
+
+  const db = SQLite.openDatabaseSync('voicevault.db');
+  db.execSync(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS notes (
@@ -28,5 +29,7 @@ export async function getDatabase() {
       next_retry_at INTEGER NOT NULL
     );
   `);
+
+  database = db;
   return database;
 }
