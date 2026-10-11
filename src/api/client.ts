@@ -147,6 +147,72 @@ export async function uploadNote(note: Note, token: string) {
       );
     }
 
+    // Step 1: Attempt Direct-to-ImageKit Upload (Bypasses Render server audio bandwidth)
+    try {
+      const ikAuth = await request<{
+        token: string;
+        expire: number;
+        signature: string;
+        publicKey: string;
+        urlEndpoint: string;
+      }>('/auth/imagekit', {}, token);
+
+      if (ikAuth?.publicKey && ikAuth?.signature) {
+        notifyTelemetry({
+          endpoint: 'upload.imagekit.io',
+          method: 'POST',
+          status: 'pending',
+          timestamp: Date.now(),
+        });
+
+        const ikUpload = await FileSystem.uploadAsync(
+          'https://upload.imagekit.io/api/v1/files/upload',
+          note.localAudioUri,
+          {
+            httpMethod: 'POST',
+            uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+            fieldName: 'file',
+            parameters: {
+              fileName: `${note.id}.m4a`,
+              publicKey: ikAuth.publicKey,
+              signature: ikAuth.signature,
+              expire: String(ikAuth.expire),
+              token: ikAuth.token,
+              useUniqueFileName: 'true',
+              folder: '/voicevault',
+            },
+          }
+        );
+
+        if (ikUpload.status >= 200 && ikUpload.status < 300) {
+          const ikData = JSON.parse(ikUpload.body || '{}');
+          if (ikData.url) {
+            // Post tiny JSON metadata payload with audioUrl directly to Render
+            const result = await request<{
+              noteId: string;
+              status: 'processing';
+              stage?: PipelineStage;
+            }>(
+              '/notes',
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  clientId: note.id,
+                  durationMs: note.durationMs,
+                  audioUrl: ikData.url,
+                }),
+              },
+              token
+            );
+            return result;
+          }
+        }
+      }
+    } catch {
+      // Gracefully continue to direct Render upload fallback
+    }
+
+    // Step 2: Fallback to direct Render multipart upload
     const uploadResult = await FileSystem.uploadAsync(`${API_URL}/notes`, note.localAudioUri, {
       httpMethod: 'POST',
       uploadType: FileSystem.FileSystemUploadType.MULTIPART,

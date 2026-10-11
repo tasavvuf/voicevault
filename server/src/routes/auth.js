@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -18,6 +19,25 @@ router.post('/register', async (request, response, next) => {
 router.post('/login', async (request, response, next) => {
   try { const input = credentials.parse(request.body); const user = await User.findOne({ email: input.email.toLowerCase() }); if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) return response.status(401).json({ error: 'Email or password is incorrect.' }); return response.json({ token: issueToken(user) }); }
   catch (error) { return next(error); }
+});
+
+router.get('/imagekit', (request, response) => {
+  if (!config.imagekitPrivateKey || !config.imagekitPublicKey) {
+    return response.status(503).json({ error: 'ImageKit is not configured.' });
+  }
+  const token = crypto.randomUUID();
+  const expire = Math.floor(Date.now() / 1000) + 1800;
+  const signature = crypto
+    .createHmac('sha1', config.imagekitPrivateKey)
+    .update(token + expire)
+    .digest('hex');
+  return response.json({
+    token,
+    expire,
+    signature,
+    publicKey: config.imagekitPublicKey,
+    urlEndpoint: config.imagekitUrlEndpoint,
+  });
 });
 
 export default router;

@@ -13,7 +13,7 @@ export async function processNote(noteId) {
       stage: 'transcribing',
       stageMessage: 'Transcribing speech to text with Gemini 2.5 Flash...',
     });
-    const transcript = await transcribe(note.audioPath);
+    const transcript = await transcribe(note.audioPath ?? note.audioUrl);
 
     // Stage 2: Summarize and extract action items
     await Note.findByIdAndUpdate(noteId, {

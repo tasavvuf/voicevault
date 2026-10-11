@@ -7,10 +7,15 @@ import { processNote } from '../services/pipeline.js';
 
 const router = Router();
 const actionItems = z.object({ actionItems: z.array(z.object({ text: z.string().min(1).max(240), done: z.boolean() })).max(12) });
-const uploadInput = z.object({ clientId: z.string().min(8).max(100), durationMs: z.coerce.number().int().min(0).max(180_000) });
+const uploadInput = z.object({
+  clientId: z.string().min(8).max(100),
+  durationMs: z.coerce.number().int().min(0).max(180_000),
+  audioUrl: z.string().url().optional(),
+});
 const serialize = (note) => ({
   _id: note.id,
   clientId: note.clientId,
+  audioUrl: note.audioUrl ?? null,
   durationMs: note.durationMs,
   status: note.status,
   stage: note.stage ?? (note.status === 'ready' ? 'ready' : note.status === 'failed' ? 'failed' : 'transcribing'),
@@ -26,14 +31,30 @@ const serialize = (note) => ({
 
 router.post('/', upload.single('audio'), async (request, response, next) => {
   try {
-    if (!request.file) return response.status(400).json({ error: 'An audio file is required.' });
     const input = uploadInput.parse(request.body);
+    const audioPath = request.file?.path ?? null;
+    const audioUrl = input.audioUrl ?? null;
+    if (!audioPath && !audioUrl) {
+      return response.status(400).json({ error: 'An audio file or audioUrl is required.' });
+    }
     const existing = await Note.findOne({ userId: request.user.sub, clientId: input.clientId });
-    if (existing) { await fs.unlink(request.file.path).catch(() => {}); return response.json({ noteId: existing.id, status: existing.status }); }
-    const note = await Note.create({ userId: request.user.sub, clientId: input.clientId, audioPath: request.file.path, durationMs: input.durationMs });
+    if (existing) {
+      if (request.file) await fs.unlink(request.file.path).catch(() => {});
+      return response.json({ noteId: existing.id, status: existing.status });
+    }
+    const note = await Note.create({
+      userId: request.user.sub,
+      clientId: input.clientId,
+      audioPath,
+      audioUrl,
+      durationMs: input.durationMs,
+    });
     response.status(202).json({ noteId: note.id, status: 'processing' });
     void processNote(note.id);
-  } catch (error) { if (request.file) await fs.unlink(request.file.path).catch(() => {}); next(error); }
+  } catch (error) {
+    if (request.file) await fs.unlink(request.file.path).catch(() => {});
+    next(error);
+  }
 });
 
 router.get('/', async (request, response, next) => {
