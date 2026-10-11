@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,10 +12,11 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { Ionicons } from '@expo/vector-icons';
 import { AppIcon, Card, IconButton, Screen, SectionHeading, StatusChip } from '@/components/ui';
 import { deleteNote, getNote, updateActionItems, updateNote } from '@/db/notesRepo';
-import { notesApi, fromApiNote } from '@/api/client';
-import { retryNote } from '@/queue/uploadQueue';
+import { notesApi, fromApiNote, subscribeApiTelemetry, getLastApiTelemetry, type ApiCallTelemetry } from '@/api/client';
+import { retryNote, syncProcessingNotes } from '@/queue/uploadQueue';
 import { useAuthStore } from '@/store/auth';
 import { formatDuration } from '@/audio/recorder';
 import { colors, radius, space } from '@/constants/design';
@@ -26,6 +28,8 @@ export default function NoteDetail() {
   const [note, setNote] = useState<Note | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [telemetry, setTelemetry] = useState<ApiCallTelemetry | null>(() => getLastApiTelemetry());
+  const [elapsed, setElapsed] = useState(0);
 
   const player = useAudioPlayer(note?.localAudioUri ?? null);
   const playerStatus = useAudioPlayerStatus(player);
@@ -44,19 +48,47 @@ export default function NoteDetail() {
   }, [id]);
 
   useEffect(() => {
-    if (!note?.serverId || note.status !== 'processing' || !token) return;
-    const interval = setInterval(async () => {
+    const unsub = subscribeApiTelemetry(setTelemetry);
+    return unsub;
+  }, []);
+
+  // Live timer while note is in queue/processing
+  useEffect(() => {
+    if (!note || (note.status !== 'processing' && note.status !== 'uploading' && note.status !== 'queued')) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setElapsed((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [note?.status]);
+
+  const pollNow = useCallback(async () => {
+    if (!token) return;
+    if (note?.serverId) {
       try {
-        const remote = await notesApi.get(note.serverId!, token);
+        const remote = await notesApi.get(note.serverId, token);
         await updateNote(note.id, fromApiNote(remote));
         const local = await getNote(id);
         setNote(local);
       } catch {
-        /* retry on next poll */
+        /* retry on next cycle */
       }
-    }, 2500);
+    } else {
+      await syncProcessingNotes(token);
+      const local = await getNote(id);
+      setNote(local);
+    }
+  }, [id, note?.id, note?.serverId, token]);
+
+  // Responsive 1.5s polling while note is in flight
+  useEffect(() => {
+    if (!note || (note.status !== 'processing' && note.status !== 'uploading' && note.status !== 'queued') || !token) return;
+    const interval = setInterval(() => {
+      void pollNow();
+    }, 1500);
     return () => clearInterval(interval);
-  }, [id, note?.id, note?.serverId, note?.status, token]);
+  }, [note?.status, pollNow, token]);
 
   const toggleAction = async (index: number) => {
     if (!note) return;
@@ -130,6 +162,28 @@ export default function NoteDetail() {
   const playbackProgress =
     playerStatus.duration > 0 ? Math.min(playerStatus.currentTime / playerStatus.duration, 1) : 0;
 
+  const isInFlight = note.status === 'processing' || note.status === 'uploading' || note.status === 'queued';
+  const isUploadDone = note.status === 'processing' || note.status === 'ready' || note.status === 'failed';
+  const isUploading = note.status === 'uploading';
+  const isTranscribeDone = note.stage === 'summarizing' || note.stage === 'embedding' || note.stage === 'ready' || note.status === 'ready' || Boolean(note.transcript);
+  const isTranscribing = (note.status === 'processing' && !isTranscribeDone) || note.stage === 'transcribing' || note.stage === 'uploaded';
+  const isSummarizeDone = note.stage === 'embedding' || note.stage === 'ready' || note.status === 'ready' || Boolean(note.summary);
+  const isSummarizing = note.status === 'processing' && note.stage === 'summarizing' && !isSummarizeDone;
+  const isEmbeddingDone = note.stage === 'ready' || note.status === 'ready';
+  const isEmbedding = note.status === 'processing' && note.stage === 'embedding' && !isEmbeddingDone;
+
+  const formatElapsed = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const secs = sec % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const activeApiCallText = telemetry
+    ? `${telemetry.method} ${telemetry.endpoint} (${telemetry.status === 'pending' ? 'calling...' : telemetry.statusCode ? `HTTP ${telemetry.statusCode}` : telemetry.status})`
+    : note.serverId
+    ? `GET /notes/${note.serverId} (Polling 1.5s)`
+    : 'POST /notes (Pending upload)';
+
   return (
     <Screen>
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -147,7 +201,7 @@ export default function NoteDetail() {
           {/* Note Metadata */}
           <View style={styles.noteHead}>
             <StatusChip status={note.status} />
-            <Text style={styles.title}>{note.title ?? 'Untitled voice note'}</Text>
+            <Text style={styles.title}>{note.title ?? (isInFlight ? 'Processing with Gemini AI...' : 'Untitled voice note')}</Text>
             <Text style={styles.meta}>
               {new Date(note.createdAt).toLocaleString(undefined, {
                 month: 'short',
@@ -178,6 +232,113 @@ export default function NoteDetail() {
               </View>
             </View>
           </Card>
+
+          {/* Live AI Processing Stepper & Real-Time API Monitor */}
+          {isInFlight && (
+            <Card style={styles.pipelineCard}>
+              <View style={styles.pipelineHead}>
+                <View style={styles.pipelineTitleRow}>
+                  <Ionicons name="sparkles" size={18} color="#7C3AED" />
+                  <Text style={styles.pipelineTitle}>Live AI Processing Pipeline</Text>
+                </View>
+                <View style={styles.liveApiBadge}>
+                  <View style={styles.liveGreenDot} />
+                  <Text style={styles.liveApiBadgeText}>LIVE API</Text>
+                </View>
+              </View>
+
+              <Text style={styles.pipelineMessage}>
+                {note.stageMessage ?? 'Processing voice note through Google Gemini AI...'}
+              </Text>
+
+              {/* 4 Steps Stepper */}
+              <View style={styles.stepperContainer}>
+                {/* Step 1: Upload */}
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepIconWrap, isUploadDone ? styles.stepDone : isUploading ? styles.stepActivePrimary : styles.stepPending]}>
+                    <Ionicons name={isUploadDone ? 'checkmark' : 'cloud-upload'} size={14} color={isUploadDone ? '#FFFFFF' : isUploading ? colors.primary : '#9CA3AF'} />
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={[styles.stepHeading, isUploadDone && styles.stepHeadingDone]}>
+                      1. Audio Upload {isUploadDone ? '· Complete' : isUploading ? '· In Progress' : '· Pending'}
+                    </Text>
+                    <Text style={styles.stepSubtext}>POST /notes · {formatDuration(note.durationMs)} audio stream</Text>
+                  </View>
+                </View>
+
+                {/* Step 2: Gemini 3.5 Transcribe */}
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepIconWrap, isTranscribeDone ? styles.stepDone : isTranscribing ? styles.stepActiveBlue : styles.stepPending]}>
+                    <Ionicons name={isTranscribeDone ? 'checkmark' : 'mic'} size={14} color={isTranscribeDone ? '#FFFFFF' : isTranscribing ? '#2563EB' : '#9CA3AF'} />
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={[styles.stepHeading, isTranscribeDone && styles.stepHeadingDone]}>
+                      2. Speech Transcription {isTranscribeDone ? '· Complete' : isTranscribing ? '· Transcribing...' : '· Pending'}
+                    </Text>
+                    <Text style={styles.stepSubtext}>Gemini 3.5 Transcribe · Speech to text</Text>
+                  </View>
+                </View>
+
+                {/* Step 3: Gemini 3.8 Summarization & Tasks */}
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepIconWrap, isSummarizeDone ? styles.stepDone : isSummarizing ? styles.stepActivePurple : styles.stepPending]}>
+                    <Ionicons name={isSummarizeDone ? 'checkmark' : 'sparkles'} size={14} color={isSummarizeDone ? '#FFFFFF' : isSummarizing ? '#7C3AED' : '#9CA3AF'} />
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={[styles.stepHeading, isSummarizeDone && styles.stepHeadingDone]}>
+                      3. Insights & Action Items {isSummarizeDone ? '· Complete' : isSummarizing ? '· Summarizing...' : '· Pending'}
+                    </Text>
+                    <Text style={styles.stepSubtext}>Gemini 3.8 Flash · Title, summary, tags, action items</Text>
+                  </View>
+                </View>
+
+                {/* Step 4: Gemini Embedding Indexing */}
+                <View style={styles.stepItem}>
+                  <View style={[styles.stepIconWrap, isEmbeddingDone ? styles.stepDone : isEmbedding ? styles.stepActiveGreen : styles.stepPending]}>
+                    <Ionicons name={isEmbeddingDone ? 'checkmark' : 'layers'} size={14} color={isEmbeddingDone ? '#FFFFFF' : isEmbedding ? '#059669' : '#9CA3AF'} />
+                  </View>
+                  <View style={styles.stepContent}>
+                    <Text style={[styles.stepHeading, isEmbeddingDone && styles.stepHeadingDone]}>
+                      4. Semantic Vector Index {isEmbeddingDone ? '· Complete' : isEmbedding ? '· Indexing...' : '· Pending'}
+                    </Text>
+                    <Text style={styles.stepSubtext}>Gemini Embedding 2 · 768-dim similarity index</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Real-Time API Monitor Box */}
+              <View style={styles.telemetryBox}>
+                <View style={styles.telemetryRow}>
+                  <Text style={styles.telemetryLabel}>Cloud Host:</Text>
+                  <Text style={styles.telemetryValue}>voicevault-lc8n.onrender.com</Text>
+                </View>
+                <View style={styles.telemetryRow}>
+                  <Text style={styles.telemetryLabel}>Live API Call:</Text>
+                  <Text style={styles.telemetryValue} numberOfLines={1}>{activeApiCallText}</Text>
+                </View>
+                <View style={styles.telemetryRow}>
+                  <Text style={styles.telemetryLabel}>Elapsed Timer:</Text>
+                  <Text style={styles.telemetryValueTime}>{formatElapsed(elapsed)}</Text>
+                </View>
+                {elapsed >= 18 && (
+                  <View style={styles.coldStartBox}>
+                    <Ionicons name="information-circle-outline" size={14} color="#B45309" />
+                    <Text style={styles.coldStartNotice}>
+                      Render free-tier instances sleep when inactive and may take 30-50s to cold-boot on initial call.
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Refresh Status Action Button */}
+              <Pressable
+                onPress={() => void pollNow()}
+                style={({ pressed }) => [styles.pollNowBtn, pressed && styles.pressed]}>
+                <Ionicons name="sync-outline" size={15} color={colors.primary} />
+                <Text style={styles.pollNowBtnText}>Poll Live Status Now</Text>
+              </Pressable>
+            </Card>
+          )}
 
           {/* AI Failure & Error Display Card */}
           {note.status === 'failed' && (
@@ -362,6 +523,178 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 13,
+  },
+  pipelineCard: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+    gap: 12,
+  },
+  pipelineHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pipelineTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pipelineTitle: {
+    color: '#1E293B',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  liveApiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    gap: 5,
+  },
+  liveGreenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  liveApiBadgeText: {
+    color: '#047857',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  pipelineMessage: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  stepperContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.md,
+    padding: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  stepItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  stepIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  stepDone: {
+    backgroundColor: '#10B981',
+  },
+  stepActivePrimary: {
+    backgroundColor: '#DBEAFE',
+    borderWidth: 1.5,
+    borderColor: '#2563EB',
+  },
+  stepActiveBlue: {
+    backgroundColor: '#DBEAFE',
+    borderWidth: 1.5,
+    borderColor: '#2563EB',
+  },
+  stepActivePurple: {
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1.5,
+    borderColor: '#7C3AED',
+  },
+  stepActiveGreen: {
+    backgroundColor: '#D1FAE5',
+    borderWidth: 1.5,
+    borderColor: '#059669',
+  },
+  stepPending: {
+    backgroundColor: '#F3F4F6',
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepHeading: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  stepHeadingDone: {
+    color: '#059669',
+  },
+  stepSubtext: {
+    color: colors.muted,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  telemetryBox: {
+    backgroundColor: '#1E293B',
+    borderRadius: radius.md,
+    padding: 12,
+    gap: 6,
+  },
+  telemetryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  telemetryLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+    fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }),
+  },
+  telemetryValue: {
+    color: '#F8FAFC',
+    fontSize: 11,
+    fontWeight: '700',
+    flexShrink: 1,
+    fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }),
+  },
+  telemetryValueTime: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+    fontFamily: Platform.select({ ios: 'Courier', default: 'monospace' }),
+  },
+  coldStartBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#451A03',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  coldStartNotice: {
+    color: '#FCD34D',
+    fontSize: 10,
+    flex: 1,
+    lineHeight: 14,
+  },
+  pollNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    backgroundColor: colors.primarySoft,
+    alignSelf: 'stretch',
+  },
+  pollNowBtnText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 12,
   },
   pressed: { opacity: 0.72 },
 });

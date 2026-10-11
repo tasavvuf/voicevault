@@ -19,11 +19,21 @@ import { useAuthStore } from '@/store/auth';
 import { AppIcon, Card, Screen } from '@/components/ui';
 import { NoteCard } from '@/components/note-card';
 import { colors, radius, space } from '@/constants/design';
+import {
+  type ApiCallTelemetry,
+  getLastApiTelemetry,
+  subscribeApiTelemetry,
+} from '@/api/client';
 import type { Note } from '@/types/note';
 
 export default function NotesScreen() {
   const token = useAuthStore((state) => state.token);
   const [retrying, setRetrying] = useState(false);
+  const [telemetry, setTelemetry] = useState<ApiCallTelemetry | null>(() => getLastApiTelemetry());
+
+  useEffect(() => {
+    return subscribeApiTelemetry(setTelemetry);
+  }, []);
 
   const {
     data = [],
@@ -55,7 +65,7 @@ export default function NotesScreen() {
     return unsubscribe;
   }, [sync]);
 
-  // Real-time polling queue when notes are in-flight
+  // Real-time fast polling queue when notes are in-flight
   useEffect(() => {
     if (processingNotes.length === 0) return;
 
@@ -65,7 +75,7 @@ export default function NotesScreen() {
       if (changed) {
         await refetch();
       }
-    }, 2500);
+    }, 1500);
 
     return () => clearInterval(interval);
   }, [processingNotes.length, refetch, token]);
@@ -105,14 +115,53 @@ export default function NotesScreen() {
           </Pressable>
         </View>
 
-        {/* Real-time In-Flight Queue Status Banner */}
+        {/* Real-time In-Flight Queue Status Banner with Live API Telemetry */}
         {processingNotes.length > 0 && (
           <View style={styles.queueBanner}>
-            <ActivityIndicator size="small" color="#7C3AED" />
-            <Text style={styles.queueBannerText}>
-              {processingNotes.length} note
-              {processingNotes.length > 1 ? 's' : ''} in AI processing queue...
-            </Text>
+            <View style={styles.queueBannerTop}>
+              <View style={styles.queueBannerLeft}>
+                <ActivityIndicator size="small" color="#7C3AED" />
+                <Text style={styles.queueBannerTitle} numberOfLines={1}>
+                  {processingNotes[0]?.stageMessage ??
+                    `${processingNotes.length} note${
+                      processingNotes.length > 1 ? 's' : ''
+                    } processing with Gemini AI...`}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sync status now"
+                onPress={() => void sync()}
+                style={({ pressed }) => [styles.syncPill, pressed && styles.pressed]}>
+                <Ionicons name="refresh" size={12} color="#7C3AED" />
+                <Text style={styles.syncPillText}>Poll</Text>
+              </Pressable>
+            </View>
+
+            {/* Real API Call Telemetry Indicator */}
+            <View style={styles.telemetryPill}>
+              <View
+                style={[
+                  styles.telemetryDot,
+                  telemetry?.status === 'pending'
+                    ? styles.telemetryDotPending
+                    : styles.telemetryDotSuccess,
+                ]}
+              />
+              <Text numberOfLines={1} style={styles.telemetryText}>
+                {telemetry
+                  ? telemetry.status === 'pending'
+                    ? `Live API: ${telemetry.method} ${telemetry.endpoint} (in flight...)`
+                    : `Live API: ${telemetry.method} ${telemetry.endpoint} · ${
+                        telemetry.statusCode ?? 200
+                      } OK${
+                        telemetry.durationMs
+                          ? ` (${(telemetry.durationMs / 1000).toFixed(1)}s)`
+                          : ''
+                      }`
+                  : 'Live API: Connected to voicevault-lc8n.onrender.com'}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -224,20 +273,70 @@ const styles = StyleSheet.create({
   queueBanner: {
     marginHorizontal: space.lg,
     marginBottom: space.sm,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    padding: 12,
     borderRadius: radius.md,
-    backgroundColor: colors.lavenderSoft,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    backgroundColor: '#FAF5FF',
     borderWidth: 1,
     borderColor: '#E9D5FF',
+    gap: 8,
   },
-  queueBannerText: {
+  queueBannerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  queueBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 6,
+  },
+  queueBannerTitle: {
     color: '#6D28D9',
     fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+  },
+  syncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  syncPillText: {
+    color: '#7C3AED',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  telemetryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+  },
+  telemetryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  telemetryDotPending: {
+    backgroundColor: '#F59E0B',
+  },
+  telemetryDotSuccess: {
+    backgroundColor: '#10B981',
+  },
+  telemetryText: {
+    color: '#F8FAFC',
+    fontSize: 11,
     fontWeight: '600',
+    flex: 1,
   },
   errorBanner: {
     marginHorizontal: space.lg,

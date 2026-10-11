@@ -29,9 +29,20 @@ export async function processUploadQueue(token: string | null) {
       }
       try {
         await setStatus(note.id, 'uploading');
+        await updateNote(note.id, {
+          stage: 'uploading',
+          stageMessage: 'Uploading audio to server...',
+        });
         const result = await uploadNote(note, token);
-        await updateNote(note.id, { serverId: result.noteId, status: 'processing' });
+        await updateNote(note.id, {
+          serverId: result.noteId,
+          status: 'processing',
+          stage: result.stage ?? 'uploaded',
+          stageMessage: 'Audio received by cloud server. Starting Gemini AI analysis...',
+        });
         await removeQueueItem(note.id);
+        // Kick off immediate sync to track live stage
+        void syncProcessingNotes(token);
       } catch (error) {
         const attempts = item.attempts + 1;
         await postponeQueueItem(note.id, attempts);
@@ -40,6 +51,10 @@ export async function processUploadQueue(token: string | null) {
           attempts >= 5 ? 'failed' : 'queued',
           error instanceof Error ? error.message : 'Upload failed'
         );
+        await updateNote(note.id, {
+          stage: attempts >= 5 ? 'failed' : 'queued',
+          stageMessage: error instanceof Error ? error.message : 'Upload failed',
+        });
       }
     }
   } finally {
@@ -59,8 +74,13 @@ export async function syncProcessingNotes(token: string | null): Promise<boolean
       if (!note.serverId) continue;
       try {
         const remote = await notesApi.get(note.serverId, token);
-        if (remote.status === 'ready' || remote.status === 'failed') {
-          const partial = fromApiNote(remote);
+        const partial = fromApiNote(remote);
+        const stageChanged = partial.stage && partial.stage !== note.stage;
+        const msgChanged = partial.stageMessage && partial.stageMessage !== note.stageMessage;
+        const statusChanged = remote.status !== note.status;
+        const readyCompleted = remote.status === 'ready' && !note.summary;
+
+        if (stageChanged || msgChanged || statusChanged || readyCompleted) {
           await updateNote(note.id, partial);
           didChange = true;
         }
@@ -77,16 +97,21 @@ export async function syncProcessingNotes(token: string | null): Promise<boolean
 export async function retryNote(note: Note, token: string | null) {
   if (!token) return;
   if (note.serverId) {
-    await setStatus(note.id, 'processing', null);
+    await updateNote(note.id, {
+      status: 'processing',
+      stage: 'transcribing',
+      stageMessage: 'Restarting Gemini AI pipeline...',
+      failureReason: null,
+    });
     try {
       const remote = await notesApi.retry(note.serverId, token);
       await updateNote(note.id, fromApiNote(remote));
     } catch (err) {
-      await setStatus(
-        note.id,
-        'failed',
-        err instanceof Error ? err.message : 'AI retry request failed'
-      );
+      await updateNote(note.id, {
+        status: 'failed',
+        stage: 'failed',
+        failureReason: err instanceof Error ? err.message : 'AI retry request failed',
+      });
     }
   } else {
     const db = await getDatabase();

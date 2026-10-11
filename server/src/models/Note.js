@@ -8,6 +8,8 @@ const noteSchema = new mongoose.Schema({
   audioPath: { type: String, required: true },
   durationMs: { type: Number, required: true, min: 0, max: 180_000 },
   status: { type: String, enum: ['processing', 'ready', 'failed'], default: 'processing', index: true },
+  stage: { type: String, enum: ['queued', 'uploading', 'uploaded', 'transcribing', 'summarizing', 'embedding', 'ready', 'failed'], default: 'uploaded', index: true },
+  stageMessage: { type: String, default: 'Audio uploaded. Queued for Gemini AI analysis.' },
   transcript: { type: String, default: '' },
   title: { type: String, default: '' },
   summary: { type: String, default: '' },

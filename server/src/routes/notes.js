@@ -8,7 +8,21 @@ import { processNote } from '../services/pipeline.js';
 const router = Router();
 const actionItems = z.object({ actionItems: z.array(z.object({ text: z.string().min(1).max(240), done: z.boolean() })).max(12) });
 const uploadInput = z.object({ clientId: z.string().min(8).max(100), durationMs: z.coerce.number().int().min(0).max(180_000) });
-const serialize = (note) => ({ _id: note.id, clientId: note.clientId, durationMs: note.durationMs, status: note.status, transcript: note.transcript, title: note.title, summary: note.summary, tags: note.tags, actionItems: note.actionItems, failureReason: note.failureReason, createdAt: note.createdAt });
+const serialize = (note) => ({
+  _id: note.id,
+  clientId: note.clientId,
+  durationMs: note.durationMs,
+  status: note.status,
+  stage: note.stage ?? (note.status === 'ready' ? 'ready' : note.status === 'failed' ? 'failed' : 'transcribing'),
+  stageMessage: note.stageMessage ?? (note.status === 'ready' ? 'Completed' : note.status === 'failed' ? note.failureReason : 'Processing audio...'),
+  transcript: note.transcript,
+  title: note.title,
+  summary: note.summary,
+  tags: note.tags,
+  actionItems: note.actionItems,
+  failureReason: note.failureReason,
+  createdAt: note.createdAt,
+});
 
 router.post('/', upload.single('audio'), async (request, response, next) => {
   try {
@@ -47,6 +61,8 @@ router.post('/:id/retry', async (request, response, next) => {
     const note = await Note.findOne({ _id: request.params.id, userId: request.user.sub });
     if (!note) return response.status(404).json({ error: 'Note not found.' });
     note.status = 'processing';
+    note.stage = 'transcribing';
+    note.stageMessage = 'Retrying Gemini AI pipeline...';
     note.failureReason = null;
     await note.save();
     void processNote(note.id);

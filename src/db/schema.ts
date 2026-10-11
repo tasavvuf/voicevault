@@ -15,6 +15,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       duration_ms INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       status TEXT NOT NULL,
+      stage TEXT,
+      stage_message TEXT,
       title TEXT,
       summary TEXT,
       transcript TEXT,
@@ -29,6 +31,9 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       next_retry_at INTEGER NOT NULL
     );
   `);
+
+  try { db.execSync('ALTER TABLE notes ADD COLUMN stage TEXT;'); } catch {}
+  try { db.execSync('ALTER TABLE notes ADD COLUMN stage_message TEXT;'); } catch {}
 
   database = db;
   return database;

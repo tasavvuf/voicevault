@@ -110,7 +110,8 @@ export default function RecordScreen() {
         durationMs: duration,
         createdAt: Date.now(),
       });
-      await processUploadQueue(token);
+      // Trigger upload queue asynchronously so user instantly transitions to dashboard/queue
+      void processUploadQueue(token);
       router.replace('/(tabs)');
     } catch (cause) {
       Alert.alert(

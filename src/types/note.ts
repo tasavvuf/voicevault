@@ -1,5 +1,15 @@
 export type NoteStatus = 'queued' | 'uploading' | 'processing' | 'ready' | 'failed';
 
+export type PipelineStage =
+  | 'queued'
+  | 'uploading'
+  | 'uploaded'
+  | 'transcribing'
+  | 'summarizing'
+  | 'embedding'
+  | 'ready'
+  | 'failed';
+
 export type ActionItem = { text: string; done: boolean };
 
 export type Note = {
@@ -8,6 +18,8 @@ export type Note = {
   durationMs: number;
   createdAt: number;
   status: NoteStatus;
+  stage?: PipelineStage;
+  stageMessage?: string | null;
   title: string | null;
   summary: string | null;
   transcript: string | null;
