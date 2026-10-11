@@ -11,13 +11,11 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: OPENAI_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: OPENAI_BASE_URL
-        value: https://api.openai.com/v1
-      - key: OPENAI_TRANSCRIPTION_MODEL
-        value: whisper-1
-      - key: OPENAI_CHAT_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_EMBEDDING_MODEL
-        value: text-embedding-3-small
+      - key: GEMINI_TRANSCRIPTION_MODEL
+        value: gemini-3.5-transcribe
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3.8-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-2

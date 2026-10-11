@@ -67,7 +67,7 @@ npm install
 npm run dev
 ```
 
-Set `MONGODB_URI`, `JWT_SECRET`, and `OPENAI_API_KEY` in `server/.env`. `OPENAI_BASE_URL` and the model variables make the integration work with OpenAI-compatible providers. API keys never enter the mobile bundle.
+Set `MONGODB_URI`, `JWT_SECRET`, and `GEMINI_API_KEY` in `server/.env`. The server uses Gemini's native SDK for transcription, structured JSON summaries, and embeddings. API keys never enter the mobile bundle.
 
 ### Mobile
 
@@ -83,7 +83,7 @@ For the Android emulator use `http://10.0.2.2:4000`. Use a development build for
 `render.yaml` is ready at the repository root. In Render, create a Blueprint from this repository and provide:
 
 - `MONGODB_URI`
-- `OPENAI_API_KEY`
+- `GEMINI_API_KEY`
 
 Render generates `JWT_SECRET`; change it only with an intentional logout/rotation plan. The default upload storage is local disk, which is ephemeral on standard Render web services. For production, replace `audioPath` storage in `server/src/routes/notes.js` with S3, R2, or another persistent object store before relying on restarts or redeploys.
 
