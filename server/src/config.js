@@ -11,8 +11,8 @@ export const config = {
   mongoUri: process.env.MONGODB_URI ?? '',
   jwtSecret: process.env.JWT_SECRET ?? '',
   geminiApiKey: process.env.GEMINI_API_KEY ?? '',
-  transcriptionModel: process.env.GEMINI_TRANSCRIPTION_MODEL ?? 'gemini-3.5-transcribe',
-  chatModel: process.env.GEMINI_CHAT_MODEL ?? 'gemini-3.8-flash',
-  embeddingModel: process.env.GEMINI_EMBEDDING_MODEL ?? 'gemini-embedding-2',
+  transcriptionModel: process.env.GEMINI_TRANSCRIPTION_MODEL ?? 'gemini-flash-latest',
+  chatModel: process.env.GEMINI_CHAT_MODEL ?? 'gemini-flash-lite-latest',
+  embeddingModel: process.env.GEMINI_EMBEDDING_MODEL ?? 'gemini-embedding-001',
   assertStartup() { required('MONGODB_URI'); required('JWT_SECRET'); required('GEMINI_API_KEY'); },
 };
