@@ -275,11 +275,11 @@ export default function NoteDetail() {
                     <Text style={[styles.stepHeading, isTranscribeDone && styles.stepHeadingDone]}>
                       2. Speech Transcription {isTranscribeDone ? '· Complete' : isTranscribing ? '· Transcribing...' : '· Pending'}
                     </Text>
-                    <Text style={styles.stepSubtext}>Gemini 3.5 Transcribe · Speech to text</Text>
+                    <Text style={styles.stepSubtext}>Gemini 2.5 Flash · Speech to text</Text>
                   </View>
                 </View>
 
-                {/* Step 3: Gemini 3.8 Summarization & Tasks */}
+                {/* Step 3: Gemini Flash-Lite Summarization & Tasks */}
                 <View style={styles.stepItem}>
                   <View style={[styles.stepIconWrap, isSummarizeDone ? styles.stepDone : isSummarizing ? styles.stepActivePurple : styles.stepPending]}>
                     <Ionicons name={isSummarizeDone ? 'checkmark' : 'sparkles'} size={14} color={isSummarizeDone ? '#FFFFFF' : isSummarizing ? '#7C3AED' : '#9CA3AF'} />
@@ -288,7 +288,7 @@ export default function NoteDetail() {
                     <Text style={[styles.stepHeading, isSummarizeDone && styles.stepHeadingDone]}>
                       3. Insights & Action Items {isSummarizeDone ? '· Complete' : isSummarizing ? '· Summarizing...' : '· Pending'}
                     </Text>
-                    <Text style={styles.stepSubtext}>Gemini 3.8 Flash · Title, summary, tags, action items</Text>
+                    <Text style={styles.stepSubtext}>Gemini Flash-Lite · Title, summary, tags, action items</Text>
                   </View>
                 </View>
 
@@ -301,7 +301,7 @@ export default function NoteDetail() {
                     <Text style={[styles.stepHeading, isEmbeddingDone && styles.stepHeadingDone]}>
                       4. Semantic Vector Index {isEmbeddingDone ? '· Complete' : isEmbedding ? '· Indexing...' : '· Pending'}
                     </Text>
-                    <Text style={styles.stepSubtext}>Gemini Embedding 2 · 768-dim similarity index</Text>
+                    <Text style={styles.stepSubtext}>Gemini Embedding · 768-dim similarity index</Text>
                   </View>
                 </View>
               </View>

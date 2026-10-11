@@ -1,11 +1,9 @@
 import * as SQLite from 'expo-sqlite';
 
 let database: SQLite.SQLiteDatabase | null = null;
+let schemaInitialized = false;
 
-export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  if (database) return database;
-
-  const db = SQLite.openDatabaseSync('voicevault.db');
+function initSchema(db: SQLite.SQLiteDatabase) {
   db.execSync(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -34,6 +32,26 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 
   try { db.execSync('ALTER TABLE notes ADD COLUMN stage TEXT;'); } catch {}
   try { db.execSync('ALTER TABLE notes ADD COLUMN stage_message TEXT;'); } catch {}
+}
+
+export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
+  if (database) {
+    try {
+      // Ping native handle to verify it is alive and not released during Fast Refresh
+      database.getFirstSync('SELECT 1');
+      return database;
+    } catch {
+      database = null;
+    }
+  }
+
+  const db = SQLite.openDatabaseSync('voicevault.db');
+  if (!schemaInitialized) {
+    try {
+      initSchema(db);
+      schemaInitialized = true;
+    } catch {}
+  }
 
   database = db;
   return database;

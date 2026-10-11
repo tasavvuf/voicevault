@@ -26,7 +26,7 @@ export function NoteCard({
           color: '#2563EB',
           bg: '#EFF6FF',
           badge: 'STAGE 2/4 · SPEECH TRANSCRIPTION',
-          title: 'Gemini 3.5 Transcribe',
+          title: 'Gemini 2.5 Flash',
           desc: note.stageMessage ?? 'Transcribing audio waveform to text...',
         };
       case 'summarizing':
@@ -35,7 +35,7 @@ export function NoteCard({
           color: '#7C3AED',
           bg: '#F5F3FF',
           badge: 'STAGE 3/4 · AI INTELLIGENCE',
-          title: 'Gemini 3.8 Flash',
+          title: 'Gemini Flash-Lite',
           desc: note.stageMessage ?? 'Extracting title, summary & action items...',
         };
       case 'embedding':
@@ -44,7 +44,7 @@ export function NoteCard({
           color: '#059669',
           bg: '#ECFDF5',
           badge: 'STAGE 4/4 · VECTOR EMBEDDINGS',
-          title: 'Gemini Embedding 2',
+          title: 'Gemini Embedding',
           desc: note.stageMessage ?? 'Generating 768-dim semantic search vectors...',
         };
       default:

@@ -11,7 +11,7 @@ export async function processNote(noteId) {
     // Stage 1: Transcribe with Gemini
     await Note.findByIdAndUpdate(noteId, {
       stage: 'transcribing',
-      stageMessage: 'Transcribing speech to text with Gemini 3.5 Transcribe...',
+      stageMessage: 'Transcribing speech to text with Gemini 2.5 Flash...',
     });
     const transcript = await transcribe(note.audioPath);
 
@@ -19,7 +19,7 @@ export async function processNote(noteId) {
     await Note.findByIdAndUpdate(noteId, {
       transcript,
       stage: 'summarizing',
-      stageMessage: 'Extracting title, summary & action items with Gemini 3.8...',
+      stageMessage: 'Extracting title, summary & action items with Gemini Flash-Lite...',
     });
     const analysis = await summarize(transcript);
 
