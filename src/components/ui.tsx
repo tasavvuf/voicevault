@@ -1,6 +1,6 @@
 import type { PropsWithChildren, ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type PressableProps, type TextInputProps, TextInput, type ViewStyle } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, shadow, space } from '@/constants/design';
 import type { NoteStatus } from '@/types/note';
 
@@ -31,23 +31,42 @@ const statusStyle: Record<NoteStatus, { label: string; text: string; background:
 };
 
 export function StatusChip({ status }: { status: NoteStatus }) {
-  const item = statusStyle[status];
+  const item = statusStyle[status] ?? statusStyle.queued;
   return <View accessibilityLabel={`Status: ${item.label}`} style={[styles.chip, { backgroundColor: item.background }]}><Text style={[styles.chipText, { color: item.text }]}>{item.label}</Text></View>;
 }
 
 export function SectionHeading({ title, action }: { title: string; action?: ReactNode }) { return <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{title}</Text>{action}</View>; }
 
-const symbols = {
-  search: { ios: 'magnifyingglass', android: 'search', web: 'search' },
-  back: { ios: 'chevron.left', android: 'arrow_back', web: 'arrow_back' },
-  play: { ios: 'play.fill', android: 'play_arrow', web: 'play_arrow' },
-  pause: { ios: 'pause.fill', android: 'pause', web: 'pause' },
-  trash: { ios: 'trash', android: 'delete', web: 'delete' },
-  check: { ios: 'checkmark', android: 'check', web: 'check' },
-} as const;
+export type IconName =
+  | 'search'
+  | 'back'
+  | 'play'
+  | 'pause'
+  | 'trash'
+  | 'check'
+  | 'mic'
+  | 'alert'
+  | 'refresh'
+  | 'cloud-upload'
+  | 'document-text';
 
-export function AppIcon({ name, color = colors.primary, size = 22 }: { name: keyof typeof symbols; color?: string; size?: number }) {
-  return <SymbolView name={symbols[name] as never} tintColor={color} size={size} weight="semibold" />;
+const iconMap: Record<IconName, keyof typeof Ionicons.glyphMap> = {
+  search: 'search-outline',
+  back: 'arrow-back',
+  play: 'play',
+  pause: 'pause',
+  trash: 'trash-outline',
+  check: 'checkmark',
+  mic: 'mic',
+  alert: 'alert-circle',
+  refresh: 'refresh',
+  'cloud-upload': 'cloud-upload-outline',
+  'document-text': 'document-text-outline',
+};
+
+export function AppIcon({ name, color = colors.primary, size = 22 }: { name: IconName; color?: string; size?: number }) {
+  const ionicon = iconMap[name] ?? 'help-circle-outline';
+  return <Ionicons name={ionicon} size={size} color={color} />;
 }
 
 const styles = StyleSheet.create({
@@ -57,8 +76,11 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: colors.surface, fontSize: 16, fontWeight: '700' },
   pressed: { opacity: 0.72 },
   iconButton: { minWidth: 44, minHeight: 44, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  field: { gap: space.sm }, fieldLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  field: { gap: space.sm },
+  fieldLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.md, color: colors.text, fontSize: 16, backgroundColor: colors.surface },
-  chip: { alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 }, chipText: { fontSize: 12, fontWeight: '700' },
-  sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  chip: { alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  chipText: { fontSize: 12, fontWeight: '700' },
+  sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
 });

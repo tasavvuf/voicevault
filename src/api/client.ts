@@ -32,6 +32,7 @@ export const notesApi = {
   updateActionItems: (id: string, actionItems: ActionItem[], token: string) => request<ApiNote>(`/notes/${id}/action-items`, { method: 'PATCH', body: JSON.stringify({ actionItems }) }, token),
   remove: (id: string, token: string) => request<void>(`/notes/${id}`, { method: 'DELETE' }, token),
   search: (query: string, token: string) => request<ApiNote[]>('/search', { method: 'POST', body: JSON.stringify({ query }) }, token),
+  retry: (id: string, token: string) => request<ApiNote>(`/notes/${id}/retry`, { method: 'POST' }, token),
 };
 
 export function fromApiNote(remote: ApiNote): Partial<Note> {

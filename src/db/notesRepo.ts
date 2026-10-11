@@ -36,6 +36,12 @@ export async function getNote(id: string) {
   return row ? decode(row) : null;
 }
 
+export async function getProcessingNotes() {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<NoteRow>("SELECT * FROM notes WHERE status IN ('processing', 'uploading')");
+  return rows.map(decode);
+}
+
 export async function updateNote(id: string, patch: Partial<Pick<Note, 'status' | 'title' | 'summary' | 'transcript' | 'tags' | 'actionItems' | 'serverId' | 'failureReason'>>) {
   const db = await getDatabase();
   const values: Record<string, string | number | null> = { ...patch } as Record<string, string | number | null>;
