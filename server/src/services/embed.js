@@ -1,9 +1,11 @@
-import { getOpenAi } from './openai.js';
+import { getGemini } from './gemini.js';
 import { config } from '../config.js';
 
 export async function embed(text) {
-  const result = await getOpenAi().embeddings.create({ model: config.embeddingModel, input: text });
-  return result.data[0].embedding;
+  const result = await getGemini().models.embedContent({ model: config.embeddingModel, contents: text, config: { outputDimensionality: 768 } });
+  const embedding = result.embeddings?.[0]?.values;
+  if (!embedding?.length) throw new Error('Gemini did not return an embedding.');
+  return embedding;
 }
 
 export function cosineSimilarity(left, right) {
