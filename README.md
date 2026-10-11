@@ -1,56 +1,120 @@
-# Welcome to your Expo app 👋
+# VoiceVault
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An offline-first AI voice-notes app. Record a thought, upload it when connectivity is available, and retrieve it later by meaning rather than exact keywords.
 
-## Get started
+![VoiceVault recording and processed note](docs/voicevault-demo.gif)
 
-1. Install dependencies
+## What ships
 
-   ```bash
-   npm install
-   ```
+- JWT registration and sign-in, with the token held in SecureStore.
+- Record, pause, resume, cancel, and save voice notes locally with a live timer and a three-minute cap.
+- SQLite-backed note store and durable retry queue. Recording saves locally before any network request.
+- Processing states: Queued, Uploading, Processing, Ready, and Needs retry.
+- Note detail with audio playback, summary, tags, checklist, and transcript.
+- Semantic search backed by an embeddings model and cosine similarity.
+- Express/MongoDB API with idempotent multipart upload, Zod validation, auth middleware, limits, and rate limiting.
+- Render blueprint and an EAS profile that produces an installable Android APK.
 
-2. Start the app
+## Pipeline
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```text
+Microphone
+   │
+   ├─ Expo Audio recorder → app document storage
+   │                          │
+   │                          └─ SQLite notes + upload_queue (shown immediately)
+   │                                                   │
+   │                                           online / exponential retry
+   ▼                                                   ▼
+POST /notes (JWT + multipart) ──► Mongo Note: processing ──► return 202
+                                           │
+                                           ├─ transcription
+                                           ├─ JSON-schema LLM: title, summary, tags, actions
+                                           ├─ embedding: title + summary + transcript
+                                           ▼
+                                   Mongo Note: ready / failed
+                                           │
+                         GET /notes/:id polling every 3 seconds
+                                           │
+                                           ▼
+                      local SQLite detail UI and semantic search
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Project layout
 
-### Other setup steps
+```text
+src/
+  app/                  Expo Router screens
+  api/                  authenticated API client
+  audio/                recorder limits and duration formatting
+  db/                   SQLite schema and note repository
+  queue/                connectivity-aware upload worker
+  store/                SecureStore-backed Zustand auth state
+server/
+  src/models/           MongoDB User and Note models
+  src/routes/           auth, notes, search endpoints
+  src/services/         transcription, structured summary, embedding pipeline
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Run locally
 
-## Learn more
+### API
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+cd server
+cp .env.example .env
+npm install
+npm run dev
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Set `MONGODB_URI`, `JWT_SECRET`, and `OPENAI_API_KEY` in `server/.env`. `OPENAI_BASE_URL` and the model variables make the integration work with OpenAI-compatible providers. API keys never enter the mobile bundle.
 
-## Join the community
+### Mobile
 
-Join our community of developers creating universal apps.
+```bash
+npm install
+EXPO_PUBLIC_API_URL=http://YOUR-LAN-IP:4000 npx expo start
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+For the Android emulator use `http://10.0.2.2:4000`. Use a development build for device recording because the app adds native Expo modules.
+
+## Deploy the API to Render
+
+`render.yaml` is ready at the repository root. In Render, create a Blueprint from this repository and provide:
+
+- `MONGODB_URI`
+- `OPENAI_API_KEY`
+
+Render generates `JWT_SECRET`; change it only with an intentional logout/rotation plan. The default upload storage is local disk, which is ephemeral on standard Render web services. For production, replace `audioPath` storage in `server/src/routes/notes.js` with S3, R2, or another persistent object store before relying on restarts or redeploys.
+
+## Build an APK with EAS
+
+Update the placeholder `EXPO_PUBLIC_API_URL` in `eas.json` to the Render service URL, then run:
+
+```bash
+npx eas-cli@latest build:configure
+npx eas-cli@latest build --platform android --profile preview
+```
+
+The `preview` profile sets `android.buildType` to `apk`, so its output installs directly on Android devices. The production profile keeps the default store-oriented Android artifact.
+
+## API contract
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | `/auth/register` | Create account and return JWT |
+| POST | `/auth/login` | Authenticate and return JWT |
+| POST | `/notes` | Multipart upload: `audio`, `clientId`, `durationMs`; returns 202 |
+| GET | `/notes?cursor=&limit=` | Cursor-paginated notes |
+| GET | `/notes/:id` | Fetch one processed note |
+| PATCH | `/notes/:id/action-items` | Update checklist state |
+| POST | `/search` | Return ten semantic matches |
+| DELETE | `/notes/:id` | Remove note and local audio on server |
+
+## Limitations and production next steps
+
+- The asynchronous pipeline runs in the web process. Use a durable job queue/worker for resilient processing and concurrency at scale.
+- Semantic search calculates cosine similarity in Node and is appropriate for hundreds of notes per user. Move to Atlas Vector Search or another vector index for larger collections.
+- Upload files are local to the Render instance; configure object storage for durable audio.
+- The app polls while a note is processing. Push notifications are a suitable upgrade for background completion.
+- Audio recording and storage have been implemented for native devices; validate the web recording path separately if web support is a release target.
