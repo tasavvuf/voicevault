@@ -42,6 +42,18 @@ router.patch('/:id/action-items', async (request, response, next) => {
   catch (error) { return next(error); }
 });
 
+router.post('/:id/retry', async (request, response, next) => {
+  try {
+    const note = await Note.findOne({ _id: request.params.id, userId: request.user.sub });
+    if (!note) return response.status(404).json({ error: 'Note not found.' });
+    note.status = 'processing';
+    note.failureReason = null;
+    await note.save();
+    void processNote(note.id);
+    return response.json(serialize(note));
+  } catch (error) { return next(error); }
+});
+
 router.delete('/:id', async (request, response, next) => {
   try { const note = await Note.findOneAndDelete({ _id: request.params.id, userId: request.user.sub }); if (!note) return response.status(404).json({ error: 'Note not found.' }); await fs.unlink(note.audioPath).catch(() => {}); return response.status(204).end(); }
   catch (error) { return next(error); }
