@@ -25,49 +25,63 @@ Whether you record in a subway tunnel or on airplane mode, your audio is safely 
 
 ## 🏗️ High-Level System Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                   MOBILE CLIENT                                  │
-│                                                                                  │
-│   [ Native Audio Recorder ] ──▶ Local Sandboxed Storage (M4A)                    │
-│                                           │                                      │
-│                                           ▼                                      │
-│                            [ Local SQLite WAL Database ]                         │
-│                            (Optimistic write: < 20ms)                            │
-│                                           │                                      │
-│                                           ▼                                      │
-│                            [ Durable Offline Retry Queue ]                       │
-└───────────────────────────────────────────┬──────────────────────────────────────┘
-                                            │
-               ┌────────────────────────────┴────────────────────────────┐
-               │ [Primary: Direct-to-Cloud Upload]                       │ [Fallback Stream]
-               ▼                                                         ▼
-┌─────────────────────────────┐                         ┌───────────────────────────────────┐
-│ ImageKit Edge Storage       │                         │ Express Cloud Backend (Render)    │
-│ (HMAC-SHA1 Signed Token)    │                         │                                   │
-│ Direct Client OkHttp Stream │                         │ - JWT Authentication              │
-└──────────────┬──────────────┘                         │ - Rate Limiting & Zod Validation  │
-               │ (Public HTTPS URL)                     │ - Background AI Orchestrator      │
-               ▼                                        └─────────────────┬─────────────────┘
-┌─────────────────────────────┐                                           │
-│ Express Metadata Gateway    │ ◀─────────────────────────────────────────┘
-│ (POST /notes - 100B JSON)   │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                             MULTIMODAL AI PIPELINE                               │
-│                                                                                  │
-│   [ Stage 1: Audio Ingestion ] ──▶ Gemini Files API                              │
-│   [ Stage 2: Transcription ]   ──▶ Gemini 2.5 Flash (Verbatim Speech-to-Text)    │
-│   [ Stage 3: Knowledge Synth ] ──▶ Gemini Flash-Lite (Title, Summary, Tasks)     │
-│   [ Stage 4: Vector Indexing ] ──▶ Gemini Embedding (768-dim Vector Embeddings)  │
-│                                                                                  │
-│                                           │                                      │
-│                                           ▼                                      │
-│                             [ MongoDB Replica Set ]                              │
-│                             (Indexed Vector & Document Store)                    │
-└──────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph MobileClient ["📱 Mobile Client (React Native & Expo 57)"]
+        direction TB
+        Mic["🎙️ Audio Recorder (expo-audio)"]
+        LocalStorage["📁 Sandboxed Storage (M4A File)"]
+        SQLite["⚡ SQLite WAL Database (Optimistic Write < 20ms)"]
+        Queue["🔄 Offline-First Retry Queue"]
+        
+        Mic --> LocalStorage
+        LocalStorage --> SQLite
+        SQLite --> Queue
+    end
+
+    subgraph DirectUpload ["☁️ Direct-to-Cloud Upload Pipeline"]
+        direction TB
+        AuthReq["1. GET /auth/imagekit (HMAC Token)"]
+        ImageKit["2. ImageKit Global CDN (Direct OkHttp Stream)"]
+        RenderGateway["3. Express Gateway (POST /notes with 100B JSON Ticket)"]
+    end
+
+    subgraph Backend ["🖥️ Cloud Backend & Persistence (Render)"]
+        direction TB
+        Express["Express.js Server (JWT & Zod Validation)"]
+        MongoDB[("🍃 MongoDB Atlas Replica Set")]
+    end
+
+    subgraph AIPipeline ["🤖 Multimodal Gemini AI Pipeline"]
+        direction TB
+        GeminiFiles["Stage 1: Gemini Files API Ingestion"]
+        GeminiSpeech["Stage 2: Gemini 2.5 Flash (Verbatim Transcription)"]
+        GeminiFlashLite["Stage 3: Gemini Flash-Lite (Title, Summary & Tasks)"]
+        GeminiEmbed["Stage 4: Gemini Embedding (768-dim Vector Index)"]
+        
+        GeminiFiles --> GeminiSpeech
+        GeminiSpeech --> GeminiFlashLite
+        GeminiFlashLite --> GeminiEmbed
+    end
+
+    Queue -->|"1. Request Token"| AuthReq
+    AuthReq -->|"HMAC Signature"| Queue
+    Queue -->|"2. Direct Stream (0 Server Bandwidth)"| ImageKit
+    ImageKit -->|"Public HTTPS URL"| RenderGateway
+    RenderGateway --> Express
+    Express -->|"Async Worker"| GeminiFiles
+    GeminiEmbed -->|"Persist Vector & Structured Note"| MongoDB
+    MongoDB -.->|"Real-Time Status Polling & Telemetry"| MobileClient
+
+    classDef client fill:#EFF6FF,stroke:#2563EB,stroke-width:2px;
+    classDef edge fill:#FEF3C7,stroke:#D97706,stroke-width:2px;
+    classDef server fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px;
+    classDef ai fill:#ECFDF5,stroke:#059669,stroke-width:2px;
+    
+    class MobileClient client;
+    class DirectUpload edge;
+    class Backend server;
+    class AIPipeline ai;
 ```
 
 ---

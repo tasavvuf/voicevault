@@ -20,50 +20,114 @@ VoiceVault resolves these challenges through a **local-first SQLite replication 
 
 ## 2. System Architecture
 
+### 2.1 Topology & Component Flow
+
+```mermaid
+flowchart TD
+    subgraph MobileClient ["📱 Mobile Client (React Native & Expo 57)"]
+        direction TB
+        Mic["🎙️ Audio Recorder (expo-audio)"]
+        LocalStorage["📁 Sandboxed Storage (M4A File)"]
+        SQLite["⚡ SQLite WAL Database (Optimistic Write < 20ms)"]
+        Queue["🔄 Offline-First Retry Queue"]
+        
+        Mic --> LocalStorage
+        LocalStorage --> SQLite
+        SQLite --> Queue
+    end
+
+    subgraph DirectUpload ["☁️ Direct-to-Cloud Upload Pipeline"]
+        direction TB
+        AuthReq["1. GET /auth/imagekit (HMAC Token)"]
+        ImageKit["2. ImageKit Global CDN (Direct OkHttp Stream)"]
+        RenderGateway["3. Express Gateway (POST /notes with 100B JSON Ticket)"]
+    end
+
+    subgraph Backend ["🖥️ Cloud Backend & Persistence (Render)"]
+        direction TB
+        Express["Express.js Server (JWT & Zod Validation)"]
+        MongoDB[("🍃 MongoDB Atlas Replica Set")]
+    end
+
+    subgraph AIPipeline ["🤖 Multimodal Gemini AI Pipeline"]
+        direction TB
+        GeminiFiles["Stage 1: Gemini Files API Ingestion"]
+        GeminiSpeech["Stage 2: Gemini 2.5 Flash (Verbatim Transcription)"]
+        GeminiFlashLite["Stage 3: Gemini Flash-Lite (Title, Summary & Tasks)"]
+        GeminiEmbed["Stage 4: Gemini Embedding (768-dim Vector Index)"]
+        
+        GeminiFiles --> GeminiSpeech
+        GeminiSpeech --> GeminiFlashLite
+        GeminiFlashLite --> GeminiEmbed
+    end
+
+    Queue -->|"1. Request Token"| AuthReq
+    AuthReq -->|"HMAC Signature"| Queue
+    Queue -->|"2. Direct Stream (0 Server Bandwidth)"| ImageKit
+    ImageKit -->|"Public HTTPS URL"| RenderGateway
+    RenderGateway --> Express
+    Express -->|"Async Worker"| GeminiFiles
+    GeminiEmbed -->|"Persist Vector & Structured Note"| MongoDB
+    MongoDB -.->|"Real-Time Status Polling & Telemetry"| MobileClient
+
+    classDef client fill:#EFF6FF,stroke:#2563EB,stroke-width:2px;
+    classDef edge fill:#FEF3C7,stroke:#D97706,stroke-width:2px;
+    classDef server fill:#F5F3FF,stroke:#7C3AED,stroke-width:2px;
+    classDef ai fill:#ECFDF5,stroke:#059669,stroke-width:2px;
+    
+    class MobileClient client;
+    class DirectUpload edge;
+    class Backend server;
+    class AIPipeline ai;
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   MOBILE CLIENT                                        │
-│                                                                                        │
-│   [ Expo Audio Engine ] ──▶ Local M4A Storage (App Sandbox)                           │
-│                                     │                                                  │
-│                                     ▼                                                  │
-│                        [ Local SQLite WAL Database ]                                   │
-│                        (Optimistic write: < 15ms latency)                              │
-│                                     │                                                  │
-│                                     ▼                                                  │
-│                        [ Durable Retry Upload Queue ]                                  │
-│                                     │                                                  │
-└─────────────────────────────────────┼──────────────────────────────────────────────────┘
-                                      │
-            ┌─────────────────────────┴─────────────────────────┐
-            │ [Path A: Direct CDN Upload]                       │ [Path B: Fallback Stream]
-            ▼                                                   ▼
-┌──────────────────────────┐                         ┌───────────────────────────────────┐
-│ ImageKit Edge Storage    │                         │ Express Cloud Backend (Render)    │
-│ (Signed HMAC Token)      │                         │                                   │
-│ Direct Client Streaming  │                         │ - JWT Authentication              │
-└───────────┬──────────────┘                         │ - Rate Limiting & Zod Validation  │
-            │ (Public URL)                           │ - Health & Warm-up Daemon         │
-            ▼                                        └─────────────────┬─────────────────┘
-┌──────────────────────────┐                                           │
-│ Express Metadata Gateway │ ◀─────────────────────────────────────────┘
-│ (POST /notes JSON only)  │
-└───────────┬──────────────┘
-            │
-            ▼
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                              AI INTELLIGENCE PIPELINE                                  │
-│                                                                                        │
-│   [ Stage 1: Audio Ingestion ] ──▶ Gemini Files API                                    │
-│   [ Stage 2: Transcription ]   ──▶ Gemini 2.5 Flash (Deterministic Speech-to-Text)     │
-│   [ Stage 3: Knowledge Synth ] ──▶ Gemini Flash-Lite (JSON Schema Title/Summary/Tasks) │
-│   [ Stage 4: Vector Indexing ] ──▶ Gemini Embedding (768-dim Vector Embeddings)       │
-│                                                                                        │
-│                                     │                                                  │
-│                                     ▼                                                  │
-│                        [ MongoDB Replica Set ]                                         │
-│                        (Indexed Vector & Document Store)                               │
-└────────────────────────────────────────────────────────────────────────────────────────┘
+
+### 2.2 End-to-End Execution Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 👤 User
+    participant App as 📱 Mobile Client
+    participant SQLite as 💾 Local SQLite WAL
+    participant IK as ☁️ ImageKit CDN
+    participant Server as 🖥️ Express Gateway
+    participant Gemini as 🤖 Google Gemini AI
+
+    User->>App: Stop Recording
+    App->>SQLite: Synchronous Atomic Write (< 20ms)
+    App-->>User: Optimistic Update: Note Saved
+
+    rect rgb(240, 248, 255)
+    Note over App,IK: Phase 1: Direct-to-Cloud Upload (0 Server Bandwidth)
+    App->>Server: GET /auth/imagekit (JWT)
+    Server-->>App: HMAC-SHA1 Signature Token
+    App->>IK: Native OkHttp Stream (voicevault.m4a)
+    IK-->>App: 200 OK (Public HTTPS URL)
+    end
+
+    rect rgb(245, 243, 255)
+    Note over App,Server: Phase 2: Metadata Ticket Ingestion
+    App->>Server: POST /notes { audioUrl, clientId, durationMs }
+    Server-->>App: 202 Accepted (status: "processing")
+    end
+
+    rect rgb(236, 253, 245)
+    Note over Server,Gemini: Phase 3: 4-Stage Multimodal AI Pipeline
+    Server->>Gemini: Stage 1: Upload via Gemini Files API
+    Server->>Gemini: Stage 2: Transcribe Speech (Gemini 2.5 Flash, temp: 0.1)
+    Gemini-->>Server: Verbatim Speech-to-Text Transcript
+    Server->>Gemini: Stage 3: Synthesize Knowledge (Gemini Flash-Lite + JSON Schema)
+    Gemini-->>Server: Structured Title, Summary, Tags, Action Items
+    Server->>Gemini: Stage 4: Generate 768-dim Vector Embeddings
+    Gemini-->>Server: Vector Array [0.042, -0.015, ...]
+    Server->>Server: Persist Note & Vector in MongoDB Atlas
+    end
+
+    loop Every 1.5s while In-Flight
+        App->>Server: GET /notes/:id (Poll Status)
+        Server-->>App: Stage update (transcribing -> summarizing -> ready)
+        App-->>User: Live Telemetry & Stepper Progress
+    end
 ```
 
 ---
