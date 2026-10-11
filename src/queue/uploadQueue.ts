@@ -18,7 +18,7 @@ let runningSync = false;
 export async function processUploadQueue(token: string | null) {
   if (!token || runningUpload) return;
   const network = await NetInfo.fetch();
-  if (!network.isConnected || !network.isInternetReachable) return;
+  if (network.isConnected === false) return;
   runningUpload = true;
   try {
     for (const item of await getDueQueueItems()) {
@@ -115,7 +115,12 @@ export async function retryNote(note: Note, token: string | null) {
     }
   } else {
     const db = await getDatabase();
-    await setStatus(note.id, 'queued', null);
+    await updateNote(note.id, {
+      status: 'queued',
+      stage: 'queued',
+      stageMessage: 'Retrying upload to cloud server...',
+      failureReason: null,
+    });
     await db.runAsync(
       'INSERT OR REPLACE INTO upload_queue (note_id, attempts, next_retry_at) VALUES (?, ?, ?)',
       note.id,

@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ActionItem, Note, PipelineStage } from '@/types/note';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://voicevault-lc8n.onrender.com';
@@ -122,11 +124,86 @@ export const authApi = {
 };
 
 export async function uploadNote(note: Note, token: string) {
-  const data = new FormData();
-  data.append('clientId', note.id);
-  data.append('durationMs', String(note.durationMs));
-  data.append('audio', { uri: note.localAudioUri, type: 'audio/m4a', name: `${note.id}.m4a` } as unknown as Blob);
-  return request<{ noteId: string; status: 'processing'; stage?: PipelineStage }>('/notes', { method: 'POST', body: data }, token);
+  const startTime = Date.now();
+  notifyTelemetry({
+    endpoint: '/notes',
+    method: 'POST',
+    status: 'pending',
+    timestamp: startTime,
+  });
+
+  try {
+    if (Platform.OS === 'web') {
+      const res = await fetch(note.localAudioUri);
+      const blob = await res.blob();
+      const data = new FormData();
+      data.append('clientId', note.id);
+      data.append('durationMs', String(note.durationMs));
+      data.append('audio', blob, `${note.id}.m4a`);
+      return await request<{ noteId: string; status: 'processing'; stage?: PipelineStage }>(
+        '/notes',
+        { method: 'POST', body: data },
+        token
+      );
+    }
+
+    const uploadResult = await FileSystem.uploadAsync(`${API_URL}/notes`, note.localAudioUri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'audio',
+      mimeType: 'audio/m4a',
+      parameters: {
+        clientId: note.id,
+        durationMs: String(note.durationMs),
+      },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    const durationMs = Date.now() - startTime;
+    let body: any = {};
+    try {
+      body = JSON.parse(uploadResult.body || '{}');
+    } catch {
+      body = {};
+    }
+
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      const errorMsg = body.error ?? `Upload failed (${uploadResult.status})`;
+      notifyTelemetry({
+        endpoint: '/notes',
+        method: 'POST',
+        status: 'error',
+        statusCode: uploadResult.status,
+        message: errorMsg,
+        timestamp: Date.now(),
+        durationMs,
+      });
+      throw new Error(errorMsg);
+    }
+
+    notifyTelemetry({
+      endpoint: '/notes',
+      method: 'POST',
+      status: 'success',
+      statusCode: uploadResult.status,
+      timestamp: Date.now(),
+      durationMs,
+    });
+
+    return body as { noteId: string; status: 'processing'; stage?: PipelineStage };
+  } catch (err) {
+    if (lastTelemetry?.endpoint === '/notes' && lastTelemetry.status === 'pending') {
+      notifyTelemetry({
+        endpoint: '/notes',
+        method: 'POST',
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Upload failed',
+        timestamp: Date.now(),
+        durationMs: Date.now() - startTime,
+      });
+    }
+    throw err;
+  }
 }
 
 export const notesApi = {
