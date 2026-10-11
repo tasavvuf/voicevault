@@ -1,15 +1,25 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
+# Environment & secrets (strictly prevent accidental leaks)
+.env
+.env.*
+.env*.local
+*.env
+*.env.*
+!*.env.example
+!server/.env.example
+
 # dependencies
 node_modules/
+package-lock.json.backup
 
-# Expo
+# Expo & Web
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native builds & keystores
 .kotlin/
 *.orig.*
 *.jks
@@ -17,27 +27,46 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+/ios/
+/android/
 
 # Metro
 .metro-health-check*
 
-# debug
+# debug & logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+pnpm-debug.*
+*.log
 
-# macOS
+# macOS & OS artifacts
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 *.pem
 
-# local env files
-.env*.local
+# IDEs & Editors
+.idea/
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 
-# typescript
+# typescript & build
 *.tsbuildinfo
-
 example
 
-# generated native folders
-/ios
-/android
+# Server artifacts & uploads
+server/.env
+server/.env.*
+!server/.env.example
+server/uploads/
+uploads/
+coverage/
