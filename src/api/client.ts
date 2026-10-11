@@ -1,6 +1,6 @@
 import type { ActionItem, Note } from '@/types/note';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://10.0.2.2:4000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://voicevault-lc8n.onrender.com';
 
 type ApiNote = { _id: string; clientId: string; status: Note['status']; title?: string; summary?: string; transcript?: string; tags?: string[]; actionItems?: ActionItem[]; createdAt: string; durationMs: number; failureReason?: string };
 

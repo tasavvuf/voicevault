@@ -4,10 +4,10 @@
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://YOUR-RENDER-SERVICE.onrender.com" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://voicevault-lc8n.onrender.com" }
     },
     "production": {
-      "env": { "EXPO_PUBLIC_API_URL": "https://YOUR-RENDER-SERVICE.onrender.com" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://voicevault-lc8n.onrender.com" }
     }
   }
 }
